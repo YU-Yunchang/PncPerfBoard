@@ -7,7 +7,7 @@ from record2mcap.perfboard_analysis import RunAnalyzer, CONTROL_TOPIC, POSE_TOPI
 from record2mcap.perfboard_jobs import output_for
 from record2mcap.perfboard_server import parse_event_path, parse_file_open_path, parse_run_file_path, parse_run_path
 from record2mcap.perfboard_storage import (
-    connect, create_manual_event, create_run, delete_or_clear_event, get_file_events,
+    connect, open_db, create_manual_event, create_run, delete_or_clear_event, get_file_events,
     get_series, get_timeline, get_trajectory, init_db, save_analysis, update_event,
 )
 
@@ -113,7 +113,7 @@ class PerfBoardStorageTests(unittest.TestCase):
             source = root / "minute" / "gaea" / "a.record"
             source.parent.mkdir(parents=True); source.write_bytes(b"x")
             db = root / "perfboard.sqlite3"
-            with connect(db) as conn:
+            with open_db(db) as conn:
                 init_db(conn)
                 run_id = create_run(conn, "run", "v1", str(root), [(source, output_for(source))])
                 analyzer = RunAnalyzer(); analyzer.start_ns = 1; analyzer.end_ns = 10
@@ -155,7 +155,7 @@ class PerfBoardStorageTests(unittest.TestCase):
             source = root / "minute" / "gaea" / "a.record"
             source.parent.mkdir(parents=True); source.write_bytes(b"x")
             db = root / "test.sqlite3"
-            with connect(db) as conn:
+            with open_db(db) as conn:
                 init_db(conn)
                 run_id = create_run(conn, "run", "v1", str(root), [(source, output_for(source))])
                 file_id = conn.execute("select id from run_files").fetchone()[0]
@@ -192,7 +192,7 @@ class PerfBoardStorageTests(unittest.TestCase):
                 matched = [e for e in get_file_events(conn, file_id) if e["source"] == "auto"][0]
                 self.assertTrue(matched["ignored"])
                 self.assertEqual(matched["ignore_reason"], "False positive")
-            with connect(db) as conn:
+            with open_db(db) as conn:
                 init_db(conn)
                 restored = update_event(conn, matched["id"], ignored=False)
                 self.assertFalse(restored["ignored"])

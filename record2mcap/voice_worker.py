@@ -31,7 +31,7 @@ def main():
                 continue
             segments.append(segment)
         print("PROGRESS", min(len(waveform), offset + step) * 1000 // 16000, flush=True)
-    Path(directory, "raw.json").write_text(json.dumps({"segments": segments, "language": "zh"}, ensure_ascii=False))
+    Path(directory, "raw.json").write_text(json.dumps({"segments": segments, "language": "zh"}, ensure_ascii=False), encoding="utf-8")
 
 
 if __name__ == "__main__":

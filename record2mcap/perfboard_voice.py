@@ -251,7 +251,7 @@ def import_events(conn, rid, payload):
     path = Path(rec["directory"]) / "transcript.json"
     if rec["status"] != "ready" or not path.is_file():
         raise ValueError("Transcript is not ready")
-    items = validate_events(payload, json.loads(path.read_text()))
+    items = validate_events(payload, json.loads(path.read_text(encoding="utf-8")))
     from .perfboard_storage import get_run_files
     files = get_run_files(conn, rec["run_id"])
     added = skipped = 0
@@ -290,7 +290,7 @@ def enrich_events(conn, events):
         if rid not in recs:
             recs[rid] = recording(conn, rid)
             file = Path(recs[rid]["directory"]) / "transcript.json"
-            transcripts[rid] = json.loads(file.read_text()) if file.is_file() else {"segments": []}
+            transcripts[rid] = json.loads(file.read_text(encoding="utf-8")) if file.is_file() else {"segments": []}
         rec = recs[rid]
         refs = json.loads(evidence.pop("segment_ids"))
         evidence["transcript"] = "\n".join(s["text"] for s in transcripts[rid]["segments"] if s["id"] in refs)
@@ -348,8 +348,8 @@ class VoiceQueue:
         threading.Thread(target=self.worker, name="perfboard-voice", daemon=True).start()
 
     def enqueue(self, rid):
-        from .perfboard_storage import connect
-        with self.lock, connect(self.db_path) as conn:
+        from .perfboard_storage import connect, open_db
+        with self.lock, open_db(self.db_path) as conn:
             rec = recording(conn, rid)
             if rid in self.active:
                 raise ValueError("Recording is already processing")
@@ -362,13 +362,13 @@ class VoiceQueue:
             self.pending.put(rid)
 
     def worker(self):
-        from .perfboard_storage import connect
+        from .perfboard_storage import connect, open_db
         while True:
             rid = self.pending.get()
             try:
                 self.process(rid)
             except Exception as exc:
-                with connect(self.db_path) as conn:
+                with open_db(self.db_path) as conn:
                     update_recording(conn, rid, status="failed", stage="Failed", error=str(exc)[-2000:])
             finally:
                 with self.lock:
@@ -376,8 +376,8 @@ class VoiceQueue:
                 self.pending.task_done()
 
     def process(self, rid):
-        from .perfboard_storage import connect
-        with connect(self.db_path) as conn:
+        from .perfboard_storage import connect, open_db
+        with open_db(self.db_path) as conn:
             rec = recording(conn, rid)
             directory = Path(rec["directory"])
             python, ffmpeg = tool_paths()
@@ -395,6 +395,6 @@ class VoiceQueue:
                     update_recording(conn, rid, processed_ms=int(line.split()[1]))
             if process.wait():
                 raise ValueError("Whisper failed: " + "".join(lines))
-            raw = json.loads((directory / "raw.json").read_text())
-            (directory / "transcript.json").write_text(json.dumps(normalize_transcript(rec, raw), ensure_ascii=False, indent=2))
+            raw = json.loads((directory / "raw.json").read_text(encoding="utf-8"))
+            (directory / "transcript.json").write_text(json.dumps(normalize_transcript(rec, raw), ensure_ascii=False, indent=2), encoding="utf-8")
             update_recording(conn, rid, status="ready", stage="Ready for event extraction", processed_ms=rec["duration_ms"])

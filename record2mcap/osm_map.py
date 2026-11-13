@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import math
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from foxglove_schemas_protobuf.Grid_pb2 import Grid
@@ -137,7 +138,7 @@ class OSMMapBuilder:
     def _read_tile(self, zoom, x, y):
         if self.source.suffix.lower() == ".mbtiles":
             uri = self.source.as_uri() + "?mode=ro"
-            with sqlite3.connect(uri, uri=True) as connection:
+            with closing(sqlite3.connect(uri, uri=True)) as connection:
                 row = connection.execute(
                     "select tile_data from tiles where zoom_level=? and tile_column=? and tile_row=?",
                     (zoom, x, (1 << zoom) - 1 - y),

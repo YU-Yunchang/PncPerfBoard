@@ -138,7 +138,7 @@ def convert(source, output, foxglove=False, config=None, compression='zstd', ove
         'visualization_config': visualizer.config if visualizer else None,
         'warnings': warnings, 'validation': validation,
     }
-    output.with_suffix(output.suffix+'.report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2)+'\n')
+    output.with_suffix(output.suffix+'.report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2)+'\n', encoding="utf-8")
     return report
 
 

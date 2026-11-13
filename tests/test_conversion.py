@@ -353,6 +353,7 @@ class VisualizationTests(unittest.TestCase):
             with sqlite3.connect(path) as connection:
                 connection.execute('create table tiles(zoom_level integer, tile_column integer, tile_row integer, tile_data blob)')
                 connection.execute('insert into tiles values(?,?,?,?)', (3, 4, 5, encoded.getvalue()))
+            connection.close()
             builder = OSMMapBuilder({'source': str(path)})
             # XYZ y=2 corresponds to TMS row 2^3-1-2=5.
             self.assertEqual(builder._read_tile(3, 4, 2), encoded.getvalue())

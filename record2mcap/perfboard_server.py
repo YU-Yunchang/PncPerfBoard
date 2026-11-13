@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, urlparse
 from .perfboard_jobs import ImportQueue, find_records, output_for
 from . import perfboard_voice as voice
 from .perfboard_storage import (
-    ACTIVE_STATUSES, connect, create_manual_event, create_run, delete_or_clear_event,
+    ACTIVE_STATUSES, connect, open_db, create_manual_event, create_run, delete_or_clear_event,
     delete_run_row, get_file_events, get_run, get_run_by_path, get_run_files, get_series,
     get_timeline, get_trajectory, init_db, list_runs, reset_for_retry, update_event,
     update_run_metadata,
@@ -56,7 +56,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json({"local_transcription": voice.transcription_capability()})
             if len(parts) == 4 and parts[:2] == ['api', 'recordings']:
                 rid, action = parts[2:]
-                with connect(self.db_path) as conn:
+                with open_db(self.db_path) as conn:
                     rec = voice.recording(conn, rid)
                 if action == 'status':
                     return self.json(rec)
@@ -65,17 +65,17 @@ class Handler(BaseHTTPRequestHandler):
                 if action == 'audio':
                     return self.serve_media(Path(rec['directory']) / 'playback.m4a', 'audio/mp4')
             if path == "/api/runs":
-                with connect(self.db_path) as conn:
+                with open_db(self.db_path) as conn:
                     return self.json(list_runs(conn))
             if path == "/api/directories":
                 return self.json(list_directories(parse_qs(parsed.query).get("path", [""])[0]))
             file_id, file_tail = parse_run_file_path(path)
             if file_id is not None and file_tail == "events":
-                with connect(self.db_path) as conn:
+                with open_db(self.db_path) as conn:
                     return self.json(get_file_events(conn, file_id))
             run_id, tail = parse_run_path(path)
             if run_id is not None:
-                with connect(self.db_path) as conn:
+                with open_db(self.db_path) as conn:
                     if tail == "":
                         value = enriched_run(conn, run_id)
                     elif tail == "trajectory":
@@ -101,12 +101,12 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 4 and parts[:2] == ['api', 'recordings']:
                 rid, action = parts[2:]
                 if action == 'events':
-                    with connect(self.db_path) as conn:
+                    with open_db(self.db_path) as conn:
                         result = voice.import_events(conn, rid, self.read_json())
                     return self.json(result, 201)
                 if action == 'transcribe':
                     payload = self.read_json()
-                    with connect(self.db_path) as conn:
+                    with open_db(self.db_path) as conn:
                         rec = voice.recording(conn, rid)
                         if payload.get('start_time'):
                             ns = voice.time_ns(payload['start_time'])
@@ -120,12 +120,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self.json({'status': 'queued'}, 202)
             if len(parts) == 4 and parts[:2] == ['api', 'events'] and parts[3] == 'link':
                 payload = self.read_json()
-                with connect(self.db_path) as conn:
+                with open_db(self.db_path) as conn:
                     return self.json(voice.set_link(conn, int(parts[2]), payload.get('target_id'), payload.get('mode', 'manual')))
             run_id, tail = parse_run_path(path)
             if run_id is not None and tail == 'recordings':
                 from urllib.parse import unquote
-                with connect(self.db_path) as conn:
+                with open_db(self.db_path) as conn:
                     rec = voice.register_recording(conn, self.db_path, run_id,
                         unquote(self.headers.get('X-Filename', 'audio.m4a')), self.rfile,
                         int(self.headers.get('Content-Length', '0')))
@@ -143,7 +143,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not records:
                     raise ValueError("no record files found")
                 pairs = [(source, output_for(source)) for source in records]
-                with connect(self.db_path) as conn:
+                with open_db(self.db_path) as conn:
                     if get_run_by_path(conn, str(root)):
                         raise ValueError("this data directory has already been imported")
                     run_id = create_run(conn, name, version, str(root), pairs)
@@ -151,7 +151,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json({"run_id": run_id, "status": "queued"}, 202)
             run_id, tail = parse_run_path(path)
             if run_id is not None and tail == "retry":
-                with connect(self.db_path) as conn:
+                with open_db(self.db_path) as conn:
                     reset_for_retry(conn, run_id)
                 self.imports.enqueue(run_id)
                 return self.json({"run_id": run_id, "status": "queued"}, 202)
@@ -160,7 +160,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.open_mcap(file_id)
             if file_id is not None and file_tail == "events":
                 payload = self.read_json()
-                with connect(self.db_path) as conn:
+                with open_db(self.db_path) as conn:
                     event = create_manual_event(
                         conn, file_id, int(payload.get("timestamp_ns")),
                         str(payload.get("reason") or "manual_note"), str(payload.get("description") or ""),
@@ -179,7 +179,7 @@ class Handler(BaseHTTPRequestHandler):
             event_id = parse_event_path(path)
             if event_id is not None:
                 timestamp = payload.get("timestamp_ns")
-                with connect(self.db_path) as conn:
+                with open_db(self.db_path) as conn:
                     value = update_event(
                         conn, event_id, timestamp_ns=int(timestamp) if timestamp is not None else None,
                         reason=payload.get("reason"), description=payload.get("description"),
@@ -192,7 +192,7 @@ class Handler(BaseHTTPRequestHandler):
             name, version = str(payload.get("name", "")).strip(), str(payload.get("version_tag", "")).strip()
             if not name or not version:
                 raise ValueError("name and version tag are required")
-            with connect(self.db_path) as conn:
+            with open_db(self.db_path) as conn:
                 update_run_metadata(conn, run_id, name, version)
             return self.json({"id": run_id, "name": name, "version_tag": version})
         except Exception as exc:
@@ -203,12 +203,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             event_id = parse_event_path(path)
             if event_id is not None:
-                with connect(self.db_path) as conn:
+                with open_db(self.db_path) as conn:
                     return self.json(delete_or_clear_event(conn, event_id))
             run_id, tail = parse_run_path(path)
             if run_id is None or tail:
                 return self.error(404, "not found")
-            with connect(self.db_path) as conn:
+            with open_db(self.db_path) as conn:
                 run = get_run(conn, run_id)
                 if not run:
                     raise ValueError("run not found")
@@ -236,7 +236,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.error(400, str(exc))
 
     def open_mcap(self, file_id):
-        with connect(self.db_path) as conn:
+        with open_db(self.db_path) as conn:
             row = conn.execute(
                 "select f.*,r.data_path from run_files f join runs r on r.id=f.run_id where f.id=?",
                 (file_id,),
@@ -362,7 +362,7 @@ def list_directories(value):
 
 def main(host="127.0.0.1", port=8766, db="data/perfboard.sqlite3"):
     db_path = Path(db).resolve()
-    with connect(db_path) as conn: init_db(conn)
+    with open_db(db_path) as conn: init_db(conn)
     server = ThreadingHTTPServer((host, port), Handler)
     server.db_path = db_path; server.imports = ImportQueue(db_path); server.voices = voice.VoiceQueue(db_path)
     print(f"PerfBoard running at http://{host}:{port}", flush=True)

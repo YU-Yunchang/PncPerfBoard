@@ -9,7 +9,7 @@ from pathlib import Path
 from .converter import convert, validate
 from .cyber import RecordReader
 from .perfboard_analysis import RunAnalyzer, scan_record
-from .perfboard_storage import connect, get_run, get_run_files, save_analysis, set_run_state, update_file
+from .perfboard_storage import connect, open_db, get_run, get_run_files, save_analysis, set_run_state, update_file
 
 
 def find_records(root: Path):
@@ -41,7 +41,7 @@ class ImportQueue:
             try:
                 self._import(run_id)
             except Exception as exc:
-                with connect(self.db_path) as conn:
+                with open_db(self.db_path) as conn:
                     set_run_state(conn, run_id, "failed", error_summary=str(exc), current_file=None)
             finally:
                 self.pending.task_done()
@@ -70,13 +70,13 @@ class ImportQueue:
                     scan_record(source, analyzer)
                     status = item["status"]
                     report_path = output.with_suffix(output.suffix + ".report.json")
-                    report = json.loads(report_path.read_text()) if report_path.exists() else {}
+                    report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else {}
                 elif output.exists():
                     validate(output, source=source)
                     scan_record(source, analyzer)
                     status = "reused"
                     report_path = output.with_suffix(output.suffix + ".report.json")
-                    report = json.loads(report_path.read_text()) if report_path.exists() else {}
+                    report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else {}
                 else:
                     update_file(conn, item["id"], "converting", error=None)
                     report = convert(source, output, foxglove=True)

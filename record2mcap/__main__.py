@@ -34,7 +34,7 @@ def main():
         else:
             if args.config and not args.foxglove:
                 parser.error('--config requires --foxglove')
-            config = json.loads(args.config.read_text()) if args.config else None
+            config = json.loads(args.config.read_text(encoding="utf-8")) if args.config else None
             if args.input.is_dir():
                 files = sorted(p for p in args.input.rglob('*') if p.is_file() and
                                (p.name.endswith('.record') or '.record.' in p.name))

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -25,6 +26,17 @@ def connect(path: str | Path) -> sqlite3.Connection:
     conn.execute("pragma foreign_keys = on")
     conn.execute("pragma journal_mode = wal")
     return conn
+
+
+@contextmanager
+def open_db(path):
+    """Own a connection, finish its transaction, and always close the handle."""
+    conn = connect(path)
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def _columns(conn, table):

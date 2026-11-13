@@ -31,12 +31,12 @@ def main():
         rec = dict(id=args.recording_id, filename=audio.name, sha256=digest.hexdigest(), duration_ms=duration,
                    start_time_ns=time_ns(args.start_time or raw_start), raw_start_time=raw_start,
                    time_source='manual' if args.start_time else 'metadata')
-        result = normalize_transcript(rec, json.loads(Path(args.raw).read_text()))
+        result = normalize_transcript(rec, json.loads(Path(args.raw).read_text(encoding="utf-8")))
     else:
-        transcript = json.loads(Path(args.transcript).read_text())
-        result = json.loads(Path(args.events).read_text())
+        transcript = json.loads(Path(args.transcript).read_text(encoding="utf-8"))
+        result = json.loads(Path(args.events).read_text(encoding="utf-8"))
         result['events'] = validate_events(result, transcript)
-    Path(args.output).write_text(json.dumps(result, ensure_ascii=False, indent=2))
+    Path(args.output).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"Saved {args.output}")
 
 
