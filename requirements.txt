@@ -1,0 +1,7 @@
+mcap==1.4.0
+protobuf==6.33.6
+mcap-protobuf-support==0.5.4
+Pillow==11.3.0
+foxglove-schemas-protobuf==0.3.0
+lz4==4.4.5
+zstandard==0.25.0

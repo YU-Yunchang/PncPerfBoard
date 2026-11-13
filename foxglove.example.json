@@ -1,0 +1,14 @@
+{
+  "obstacles_frame": "base_link",
+  "trajectory_frame": "map",
+  "processed_trajectory_width": 2.2,
+  "model_frame": "base_link",
+  "bev_maps_frame": "base_link",
+  "osm_map": null,
+  "radar_extrinsics": {
+    "0": {
+      "translation": [0.0, 0.0, 0.0],
+      "rotation": [0.0, 0.0, 0.0, 1.0]
+    }
+  }
+}
