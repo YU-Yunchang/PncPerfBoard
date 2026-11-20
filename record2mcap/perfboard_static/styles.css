@@ -281,7 +281,9 @@ tr.clickable:hover { background: #f2f8f7; cursor: pointer; }
 #voice-panel .recording-time-fields input:focus { outline: 3px solid #147d781c; border-color: #76a9a2; }
 #voice-panel .recording-time-fields input:disabled { background: #f5f7f9; color: #7b8794; }
 #voice-panel .recording-time-fields small { color: #7b8794; font-size: 11px; line-height: 1.5; }
-#voice-panel .recording-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding-top: 6px; }
+#voice-panel .voice-upload-actions, #voice-panel .recording-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+#voice-panel .voice-upload-actions { margin-inline-start: auto; }
+#voice-panel .recording-actions { padding-top: 6px; }
 #voice-panel .recording-lock { display: block; margin-top: 6px; color: #7b8794; font-size: 11px; line-height: 1.5; }
 #voice-panel .recording-progress { padding: 0 18px 16px; }
 #voice-panel .recording-progress-copy { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: #526173; font-size: 12px; line-height: 1.5; }
@@ -310,7 +312,6 @@ tr.clickable:hover { background: #f2f8f7; cursor: pointer; }
   #voice-panel .voice-workflow { gap: 10px; }
   #voice-panel .voice-upload-bar { flex-wrap: wrap; padding: 12px; gap: 12px; }
   #voice-panel .voice-file-picker { flex: 1 1 100%; }
-  #voice-panel #voice-upload-button { width: 100%; }
   #voice-panel .recording-header { padding: 14px; gap: 10px; }
   #voice-panel .recording-icon { flex-basis: 32px; width: 32px; height: 32px; border-radius: 8px; }
   #voice-panel .recording-identity { gap: 9px; }

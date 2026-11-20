@@ -5,21 +5,21 @@ conversion, maps, closed-loop analysis and manual events work without it. The UI
 shows an optional-feature notice and disables audio upload/transcription when the
 local tools are absent.
 
-The current worker uses MLX and therefore targets Apple Silicon Macs. Windows,
-Linux and Intel Macs should skip this extension for now. On Apple Silicon, create
-a separate environment with `python3 -m venv .venv-transcribe`, then install
-`mlx-whisper` and `imageio-ffmpeg` using that environment's pip. Cache
-`mlx-community/whisper-large-v3-turbo` in that same environment before transcribing;
-the worker explicitly runs offline and cannot download a missing model. Configure
-`PERFBOARD_WHISPER_PYTHON` if the environment is elsewhere, and
-`PERFBOARD_FFMPEG` if FFmpeg is not on PATH or bundled by imageio-ffmpeg. Restart
-PerfBoard after configuring these tools. This extension is not part of the basic
-installation or cross-platform smoke test.
+On Windows x64, install 64-bit Python 3.11 with the Python Launcher and run
+`start-whisper.bat`. The first launch installs Faster Whisper and bundled FFmpeg,
+then downloads and validates the multilingual Whisper small model. It uses CPU
+INT8 and defaults to Chinese. To use another language, set
+`PERFBOARD_WHISPER_LANGUAGE` to a Whisper language code such as `en` before launch.
+Subsequent transcription runs locally with the cached model.
 
+On Apple Silicon, create `.venv-transcribe`, install `mlx-whisper` and
+`imageio-ffmpeg`, and cache `mlx-community/whisper-large-v3-turbo` before
+transcribing. Optional executable overrides are `PERFBOARD_WHISPER_PYTHON` and
+`PERFBOARD_FFMPEG`. Restart PerfBoard after changing the setup.
 
 In Run Details, upload M4A/MP3/WAV under **Road-test Recordings**. Confirm the start time (ISO 8601 with timezone) and click **Transcribe**. Download the transcript JSON and give it to Codex with `$perfboard-voice-events`. Import its returned event JSON under the same recording. Review audio from the event list.
 
-Whisper runs offline in a separate worker using the existing `.venv-transcribe` environment and cached `mlx-community/whisper-large-v3-turbo`. Optional overrides: `PERFBOARD_WHISPER_PYTHON` and `PERFBOARD_FFMPEG`. The normal PerfBoard Python environment does not import MLX. Missing dependencies/model/GPU errors appear as failed tasks, which can be retried. No language-model API is called.
+Whisper transcribes locally in a separate worker. Turning the transcript into structured events is a separate step. The bundled skill instructions and JSON contract below describe how to do it.
 
 Original audio, browser playback audio, raw Whisper result and normalized transcript are kept next to the database under `voice/<recording-id>/`. Do not move these files independently of the database. Start time becomes immutable after importing events. Correct event time in the event editor without changing evidence playback time. Continuous, unedited audio is assumed.
 

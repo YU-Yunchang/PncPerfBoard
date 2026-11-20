@@ -238,6 +238,61 @@ class VoiceTests(unittest.TestCase):
         finally:
             server.shutdown();server.server_close();thread.join()
 
+    def test_imported_field_notes_match_existing_and_reanalysed_exits(self):
+        from record2mcap.perfboard_event_import import import_manual_batch
+        at = str(self.ns + 10_000_000_000)
+        notes = [dict(category=category, takeover=takeover, timestamp_ns=at, description=category)
+                 for category, takeover in [('issue', 'unspecified'), ('positive', 'none')]]
+        import_manual_batch(self.conn, 1, dict(schema_version=1, kind='perfboard_manual_events', events=notes))
+        issue, positive = [e['id'] for e in get_file_events(self.conn, 1)]
+        self.assertEqual(self.event(issue)['diagnostic']['manual_report']['match_status'], 'unmatched')
+        target = self.exit(8, 'brake_takeover')
+        self.assertEqual([e['id'] for e in self.event(target)['manual_reports']], [issue])
+        self.assertEqual(self.event(issue)['diagnostic']['manual_report']['linked_event_id'], target)
+        self.assertEqual(self.event(positive)['diagnostic']['manual_report']['match_status'], 'not_applicable')
+        self.assertEqual(get_timeline(self.conn, 1)['summary']['brake_takeovers'], 1)
+        second = self.exit(11, 'steering_takeover')
+        self.assertEqual(self.event(issue)['diagnostic']['manual_report']['match_status'], 'ambiguous')
+        self.assertNotIn('manual_reports', self.event(second))
+        self.assertNotIn('manual_reports', self.event(target))
+
+    def test_manual_json_through_recording_and_run_routes(self):
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        server.db_path = self.root / 'db.sqlite'
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        def post(path, payload):
+            req = urllib.request.Request(f'http://127.0.0.1:{server.server_port}{path}',
+                                         data=json.dumps(payload).encode())
+            with urllib.request.urlopen(req) as response:
+                return json.load(response)
+
+        row = dict(timestamp_ns=str(self.ns), category='positive', takeover='none',
+                   description='左转成功', scene='路沿/护栏')
+        legacy = dict(schema_version=1, timezone='Asia/Shanghai', events=[row])
+        try:
+            # A short placeholder recording with no transcript cannot supply real evidence.
+            (self.root / 'transcript.json').unlink()
+            self.conn.execute('update recordings set start_time_ns=?,duration_ms=3000', (self.ns + 10**15,))
+            self.conn.commit()
+            with self.assertRaises(urllib.error.HTTPError):
+                post('/api/runs/1/events', dict(legacy, events=[row, dict(row, category='invalid')]))
+            self.assertEqual(get_file_events(self.conn, 1), [])
+            self.assertEqual(post('/api/recordings/rec/events', legacy), {'added': 1, 'skipped': 0})
+            event, = get_file_events(self.conn, 1)
+            self.assertEqual((event['timestamp_ns'], event['source']), (self.ns, 'manual'))
+            self.assertEqual(event['diagnostic']['manual_report']['category'], 'positive')
+            self.assertNotIn('voice', event)
+            update_event(self.conn, event['id'], description='Edited', timestamp_ns=self.ns + 1)
+            self.assertEqual(post('/api/runs/1/events', dict(legacy, kind='perfboard_manual_events')),
+                             {'added': 0, 'skipped': 1})
+            self.assertEqual(get_file_events(self.conn, 1)[0]['user_description'], 'Edited')
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
     def test_time_precision(self):
         self.assertEqual(v.time_ns('2026-09-27T05:29:11Z'),self.ns)
         events=v.validate_events(self.payload(),self.transcript)

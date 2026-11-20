@@ -79,11 +79,17 @@ def init_voice(conn):
 
 
 def tool_paths():
-    python = Path(os.environ.get("PERFBOARD_WHISPER_PYTHON", PROJECT / ".venv-transcribe/bin/python"))
+    environment = PROJECT / ".venv-transcribe"
+    windows = sys.platform == "win32"
+    default_python = environment / ("Scripts/python.exe" if windows else "bin/python")
+    python = Path(os.environ.get("PERFBOARD_WHISPER_PYTHON", default_python))
+    if windows and python == default_python and not (environment / ".perfboard-whisper-ready").is_file():
+        raise ValueError("Local Whisper is not set up. Run start-whisper.bat to install it.")
     ffmpeg = os.environ.get("PERFBOARD_FFMPEG") or shutil.which("ffmpeg")
     if not ffmpeg:
-        bundled = PROJECT / ".venv-transcribe/lib"
-        ffmpeg = next(iter(bundled.glob("python*/site-packages/imageio_ffmpeg/binaries/ffmpeg-*")), None)
+        bundled = environment / ("Lib/site-packages" if windows else "lib")
+        pattern = "imageio_ffmpeg/binaries/ffmpeg-*.exe" if windows else "python*/site-packages/imageio_ffmpeg/binaries/ffmpeg-*"
+        ffmpeg = next(bundled.glob(pattern), None)
     if not python.is_file() or not ffmpeg or not Path(ffmpeg).is_file():
         raise ValueError("Local Whisper environment or FFmpeg is missing. Configure PERFBOARD_WHISPER_PYTHON and PERFBOARD_FFMPEG.")
     return str(python), str(ffmpeg)
@@ -92,7 +98,9 @@ def tool_paths():
 def transcription_capability():
     try:
         tool_paths()
-    except ValueError:
+    except ValueError as error:
+        if sys.platform == "win32":
+            return {"available": False, "message": str(error)}
         return {"available": False, "message": "Local transcription is optional and is not configured. Run import, MCAP conversion and manual events are available. See docs/voice-events.md for setup."}
     return {"available": True, "message": "Local Whisper environment configured. Transcription requires a cached model."}
 
@@ -115,7 +123,7 @@ def update_recording(conn, rid, **values):
 
 
 def probe(ffmpeg, path):
-    result = subprocess.run([ffmpeg, "-hide_banner", "-i", str(path)], capture_output=True, text=True, timeout=30)
+    result = subprocess.run([ffmpeg, "-hide_banner", "-i", str(path)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
     import re
     duration = re.search(r"Duration: (\d+):(\d+):(\d+\.\d+)", result.stderr)
     if not duration:
@@ -179,7 +187,7 @@ def normalize_transcript(rec, raw):
             "sha256": rec["sha256"], "filename": rec["filename"], "duration_ms": rec["duration_ms"],
             "raw_start_time": rec["raw_start_time"], "start_time_ns": str(rec["start_time_ns"]),
             "start_time": iso_time(rec["start_time_ns"]), "time_source": rec["time_source"],
-            "model": "mlx-community/whisper-large-v3-turbo", "segments": segments}
+            "model": raw.get("model", "mlx-community/whisper-large-v3-turbo"), "segments": segments}
 
 
 def validate_events(payload, transcript):
@@ -217,6 +225,26 @@ def validate_events(payload, transcript):
     return result
 
 
+def match_reported_takeover(timestamp_ns, takeover, exits):
+    """Select a same-Run exit for an explicitly reported takeover."""
+    if takeover == "none":
+        return None, "not_applicable"
+    candidates = [e for e in exits if timestamp_ns - 30_000_000_000 <= e["timestamp_ns"] <= timestamp_ns + 5_000_000_000]
+    if not candidates:
+        return None, "unmatched"
+    if takeover in ("brake", "steering"):
+        candidates = [e for e in candidates if e["detected_reason"] == takeover + "_takeover"]
+        if not candidates:
+            return None, "type_conflict"
+    candidates.sort(key=lambda e: (abs(e["timestamp_ns"] - timestamp_ns), e["id"]))
+    closest = candidates[0]
+    if len(candidates) > 1:
+        advantage = abs(candidates[1]["timestamp_ns"] - timestamp_ns) - abs(closest["timestamp_ns"] - timestamp_ns)
+        if advantage < 5_000_000_000:
+            return None, "ambiguous"
+    return closest, "linked"
+
+
 def match_voice(conn, run_id):
     exits = [dict(r) for r in conn.execute("select * from events where run_id=? and source='auto' and event_type='closed_loop_exit'", (run_id,))]
     voices = conn.execute("select v.*,e.timestamp_ns from voice_evidence v join events e on e.id=v.event_id where e.run_id=?", (run_id,)).fetchall()
@@ -226,24 +254,9 @@ def match_voice(conn, run_id):
                 conn.execute("update voice_evidence set link_mode='auto',match_status='unmatched' where event_id=?", (voice["event_id"],))
             else:
                 continue
-        candidates = [e for e in exits if voice["timestamp_ns"] - 30_000_000_000 <= e["timestamp_ns"] <= voice["timestamp_ns"] + 5_000_000_000]
-        window_candidates = candidates[:]
-        if voice["takeover"] == "none":
-            candidates = []
-        elif voice["takeover"] in ("brake", "steering"):
-            candidates = [e for e in candidates if e["detected_reason"] == voice["takeover"] + "_takeover"]
-        candidates.sort(key=lambda e: (abs(e["timestamp_ns"] - voice["timestamp_ns"]), e["id"]))
-        target, status = None, "unmatched"
-        if voice['takeover'] == 'none':
-            status = 'not_applicable'
-        if not candidates and window_candidates and voice['takeover'] in ('brake', 'steering'):
-            status = 'type_conflict'
-        if candidates:
-            if len(candidates) == 1 or abs(candidates[1]["timestamp_ns"] - voice["timestamp_ns"]) - abs(candidates[0]["timestamp_ns"] - voice["timestamp_ns"]) >= 5_000_000_000:
-                target, status = candidates[0]["id"], "linked"
-            else:
-                status = "ambiguous"
-        conn.execute("update voice_evidence set linked_event_id=?,match_status=? where event_id=?", (target, status, voice["event_id"]))
+        target, status = match_reported_takeover(voice["timestamp_ns"], voice["takeover"], exits)
+        conn.execute("update voice_evidence set linked_event_id=?,match_status=? where event_id=?",
+                     (target["id"] if target else None, status, voice["event_id"]))
 
 
 def import_events(conn, rid, payload):
@@ -280,6 +293,17 @@ def enrich_events(conn, events):
     by_id = {e["id"]: e for e in events}
     if not events:
         return events
+    # Timeline rows belong to a single Run. Derive field-note links from the
+    # current exits so existing imports and reanalysed Runs need no backfill.
+    exits = [e for e in events if e["source"] == "auto" and e["event_type"] == "closed_loop_exit"]
+    for event in events:
+        report = event["diagnostic"].get("manual_report") if event["source"] == "manual" else None
+        if report:
+            target, status = match_reported_takeover(event["timestamp_ns"], report["takeover"], exits)
+            report["match_status"] = status
+            report["linked_event_id"] = target["id"] if target else None
+            if target:
+                target.setdefault("manual_reports", []).append(event)
     recs, transcripts = {}, {}
     for row in conn.execute("select * from voice_evidence"):
         event = by_id.get(row["event_id"])
@@ -387,7 +411,8 @@ class VoiceQueue:
                            check=True, capture_output=True, timeout=600)
             update_recording(conn, rid, stage="Transcribing")
             command = [python, str(Path(__file__).with_name("voice_worker.py")), str(original), str(directory), ffmpeg]
-            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
+                                       env={**os.environ, "PYTHONIOENCODING": "utf-8"})
             lines = []
             for line in process.stdout:
                 lines.append(line[-1000:]); lines = lines[-20:]

@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import os
+import platform
 from pathlib import Path
 import subprocess
 import sys
@@ -26,15 +27,41 @@ def open_when_ready(url):
             time.sleep(0.5)
 
 
+def prepare_windows_whisper():
+    environment = ROOT / '.venv-transcribe'
+    python = environment / 'Scripts/python.exe'
+    if not python.is_file():
+        venv.create(environment, with_pip=True)
+    requirements = ROOT / 'requirements-whisper-windows.txt'
+    digest = hashlib.sha256(requirements.read_bytes())
+    worker = ROOT / 'record2mcap' / 'voice_worker.py'
+    digest.update(worker.read_bytes())
+    fingerprint = digest.hexdigest()
+    marker = environment / '.perfboard-whisper-ready'
+    if marker.is_file() and marker.read_text(encoding='ascii') == fingerprint:
+        return
+    marker.unlink(missing_ok=True)
+    print('Installing Whisper and FFmpeg for Windows (first run requires internet)...', flush=True)
+    subprocess.run([str(python), '-m', 'pip', 'install', '-r', str(requirements)], check=True)
+    print('Downloading and checking the local Whisper small model...', flush=True)
+    subprocess.run([str(python), str(worker), '--prepare'], check=True)
+    marker.write_text(fingerprint, encoding='ascii')
+
+
 def main():
-    parser = argparse.ArgumentParser(description='Set up and launch PerfBoard without Whisper')
+    parser = argparse.ArgumentParser(description='Set up and launch PerfBoard')
     parser.add_argument('--setup-only', action='store_true', help='Install dependencies without starting the server')
+    parser.add_argument('--with-whisper', action='store_true', help='Install local Whisper on Windows x64')
     parser.add_argument('--no-browser', action='store_true')
     parser.add_argument('--port', type=int, default=8766)
     parser.add_argument('--db', default=str(ROOT / 'data' / 'perfboard.sqlite3'))
     args = parser.parse_args()
     if sys.version_info < (3, 9):
         parser.error('Python 3.9 or newer is required (Python 3.11 recommended).')
+    if args.with_whisper and (sys.platform != 'win32' or sys.version_info[:2] != (3, 11)
+                              or platform.machine().upper() not in ('AMD64', 'X86_64')
+                              or sys.maxsize <= 2**32):
+        parser.error('--with-whisper requires Windows x64 and 64-bit Python 3.11.')
     environment = ROOT / '.venv'
     python = environment / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
     if not python.is_file():
@@ -51,6 +78,8 @@ def main():
         subprocess.run([str(python), '-m', 'pip', 'install', '--upgrade', 'pip'], check=True)
         subprocess.run([str(python), '-m', 'pip', 'install', '-e', str(ROOT)], check=True)
         marker.write_text(fingerprint)
+    if args.with_whisper:
+        prepare_windows_whisper()
     if args.setup_only:
         print('PerfBoard is ready. Run this script again to launch.')
         return

@@ -143,6 +143,16 @@ test("Manual events and automatic Other events retain their category headings", 
   assert.equal(app.run("eventLabel(event)", { event: corrected }), "Steering Takeover");
 });
 
+test("Imported field notes display their assessment without an audio action", () => {
+  const app = frontend();
+  for (const [category, label] of [["issue", "Issue"], ["positive", "Positive"]]) {
+    const event = { id: 14, source: "manual", reason: "manual_note", diagnostic: { manual_report: { category } } };
+    const markup = app.run("eventCardMarkup(event)", { event });
+    assert.match(markup, new RegExp(`<b data-category="manual_note">${label}</b>`));
+    assert.doesNotMatch(markup, /Review audio/);
+  }
+});
+
 test("Ignore remains unavailable to direct voice events and Restore stays on ignored takeovers", () => {
   const app = frontend();
   const voice = voiceEvent("issue", "brake_takeover");
@@ -188,6 +198,18 @@ for (const [category, label] of [["brake_takeover", "Brake Takeover"], ["steerin
     assert.equal(app.run("eventCategory(event)", { event: linked }), "manual_note", "Unlinking must override a previously inherited grey category");
   });
 }
+
+test("A linked field note appears on its exit with an edit action and no audio action", () => {
+  const app = frontend();
+  const note = { id: 46, run_id: 1, source: "manual", timestamp_ns: "1790486951000000000",
+    user_description: "Crossing", diagnostic: { manual_report: { category: "issue", linked_event_id: 12, match_status: "linked" } } };
+  const parent = automaticEvent("brake_takeover", { manual_reports: [note] });
+  const visible = app.run("state.timeline={events};visibleEvents().map(e=>e.id)", { events: [parent, note] });
+  assert.deepEqual(Array.from(visible), [12]);
+  const markup = app.run("eventCardMarkup(parent)", { parent });
+  for (const detail of ["Brake Takeover", "Issue", "Crossing", 'data-edit-event="46"']) assert.ok(markup.includes(detail));
+  assert.doesNotMatch(markup, /Review audio/);
+});
 
 test("Valid linked reports are hidden as duplicate cards but retained on their automatic parent", () => {
   const app = frontend();

@@ -479,9 +479,8 @@ def update_event(conn, event_id: int, *, timestamp_ns=None, reason=None, descrip
         match_voice(conn, event["run_id"])
         conn.commit()
     updated = _decode_event(conn.execute("select * from events where id=?", (event_id,)).fetchone())
-    if updated["source"] == "voice":
-        # Return the same derived category as timeline/file APIs, including any
-        # association changed by an edited report time.
+    if updated["source"] == "voice" or updated["diagnostic"].get("manual_report"):
+        # Return the association at the edited report time as in the timeline.
         return next(item for item in get_timeline(conn, updated["run_id"])["events"] if item["id"] == event_id)
     return updated
 

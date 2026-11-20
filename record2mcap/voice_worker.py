@@ -1,12 +1,37 @@
-"""Runs only inside the optional MLX environment, never in the HTTP process."""
+"""Runs only inside the separate transcription environment, never in the HTTP process."""
 import json
 import os
 import sys
 from pathlib import Path
 
+WINDOWS_MODEL = "small"
+WINDOWS_CACHE = Path(__file__).resolve().parent.parent / ".venv-transcribe" / "models"
 
-def main():
-    audio, directory, ffmpeg = sys.argv[1:]
+
+def windows_model(local_only):
+    from faster_whisper import WhisperModel
+
+    return WhisperModel(WINDOWS_MODEL, device="cpu", compute_type="int8",
+                        download_root=str(WINDOWS_CACHE), local_files_only=local_only)
+
+
+def transcribe_windows(audio):
+    model = windows_model(local_only=True)
+    segments, info = model.transcribe(
+        audio, language=os.environ.get("PERFBOARD_WHISPER_LANGUAGE", "zh"),
+        condition_on_previous_text=False, no_speech_threshold=0.35,
+    )
+    result = []
+    for segment in segments:
+        result.append({name: getattr(segment, name) for name in (
+            "start", "end", "text", "compression_ratio", "avg_logprob", "no_speech_prob"
+        )})
+        print("PROGRESS", round(segment.end * 1000), flush=True)
+    return {"segments": result, "language": info.language,
+            "model": "Systran/faster-whisper-small"}
+
+
+def transcribe_mlx(audio, ffmpeg):
     os.environ["HF_HUB_OFFLINE"] = "1"
     import mlx_whisper
     import numpy as np
@@ -31,7 +56,20 @@ def main():
                 continue
             segments.append(segment)
         print("PROGRESS", min(len(waveform), offset + step) * 1000 // 16000, flush=True)
-    Path(directory, "raw.json").write_text(json.dumps({"segments": segments, "language": "zh"}, ensure_ascii=False), encoding="utf-8")
+    return {"segments": segments, "language": "zh", "model": "mlx-community/whisper-large-v3-turbo"}
+
+
+def main():
+    if sys.argv[1:] == ["--prepare"]:
+        windows_model(local_only=False)
+        from imageio_ffmpeg import get_ffmpeg_exe
+        import subprocess
+
+        subprocess.run([get_ffmpeg_exe(), "-version"], check=True, stdout=subprocess.DEVNULL)
+        return
+    audio, directory, ffmpeg = sys.argv[1:]
+    raw = transcribe_windows(audio) if sys.platform == "win32" else transcribe_mlx(audio, ffmpeg)
+    Path(directory, "raw.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
 
 
 if __name__ == "__main__":

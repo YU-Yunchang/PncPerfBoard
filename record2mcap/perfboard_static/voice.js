@@ -44,12 +44,27 @@ document.addEventListener("DOMContentLoaded",()=>{
   $("series").addEventListener("dblclick",e=>{const marker=e.target.closest("[data-event-id]");if(!marker)return;const event=state.timeline.events.find(v=>v.id===Number(marker.dataset.eventId));if(event?.voice||event?.voice_reports?.length){e.stopImmediatePropagation();openVoiceEvidence(event)}},true);
 });
 
+async function uploadEventJson(input, runId, path){
+  const file=input.files[0];
+  if(!file)return;
+  try{
+    const payload=JSON.parse(await file.text());
+    const result=await api(path,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)});
+    if(state.run?.id!==runId)return;
+    await refreshEventViews();
+    if(state.run?.id===runId)voiceNotice(`Imported ${result.added} events; skipped ${result.skipped} duplicates.`,"success");
+  }catch(error){if(state.run?.id===runId)voiceNotice(error.message,"error")}
+  finally{input.value=""}
+}
+
 function renderVoicePanel(){
   const panel=$("voice-panel");if(!panel||!state.run)return;
   const id=state.run.id;
   if(Number(panel.dataset.run)!==id){
     panel.dataset.run=id;
-    panel.innerHTML=`<div class="voice-panel-header"><div><h2>Road-test Recordings</h2><p class="voice-panel-description">Turn road-test audio into events with traceable voice evidence.</p></div><ol class="voice-workflow" aria-label="Recording workflow"><li><span>1</span> Upload audio</li><li><span>2</span> Transcribe</li><li><span>3</span> Import events</li></ol></div><div class="voice-upload-bar"><input id="voice-upload" type="file" accept=".m4a,.mp3,.wav" hidden><div class="voice-file-picker"><button id="voice-choose" class="secondary">Choose audio file</button><div class="voice-file-selection"><span id="voice-filename">No audio selected</span><small>M4A, MP3 or WAV · Local transcription</small></div></div><button id="voice-upload-button" disabled>Upload recording</button></div><div id="voice-status" class="voice-notice" role="status" hidden></div><div id="voice-recordings"></div><div id="voice-unmatched"></div>`;
+    panel.innerHTML=`<div class="voice-panel-header"><div><h2>Road-test Recordings</h2><p class="voice-panel-description">Turn road-test audio into events with traceable voice evidence.</p></div><ol class="voice-workflow" aria-label="Recording workflow"><li><span>1</span> Upload audio</li><li><span>2</span> Transcribe</li><li><span>3</span> Import events</li></ol></div><div class="voice-upload-bar"><input id="voice-upload" type="file" accept=".m4a,.mp3,.wav" hidden><div class="voice-file-picker"><button id="voice-choose" class="secondary">Choose audio file</button><div class="voice-file-selection"><span id="voice-filename">No audio selected</span><small>M4A, MP3 or WAV · Local transcription</small></div></div><div class="voice-upload-actions"><button id="voice-upload-button" disabled>Upload recording</button><input id="run-event-file" type="file" accept=".json" hidden><button id="run-event-import">Import manual event JSON</button></div></div><div id="voice-status" class="voice-notice" role="status" hidden></div><div id="voice-recordings"></div><div id="voice-unmatched"></div>`;
+    $("run-event-import").onclick=()=>$("run-event-file").click();
+    $("run-event-file").onchange=()=>uploadEventJson($("run-event-file"),id,`/api/runs/${id}/events`);
     $("voice-choose").onclick=()=>$("voice-upload").click();
     $("voice-upload").onchange=()=>{const file=$("voice-upload").files[0];$("voice-filename").textContent=file?.name||"No audio selected";$("voice-filename").title=file?.name||"";$("voice-upload-button").disabled=!voiceAvailable||!file};
     $("voice-upload-button").onclick=async()=>{const file=$("voice-upload").files[0];if(!file)return;const button=$("voice-upload-button");button.disabled=true;
@@ -88,7 +103,7 @@ async function loadRecordings(id){
       else if(summaryId)container.querySelector(`[data-recording="${summaryId}"] summary`)?.focus({preventScroll:true});
       container.querySelectorAll("[data-choose-events]").forEach(b=>b.onclick=()=>container.querySelector(`[data-events="${b.dataset.chooseEvents}"]`).click());
       container.querySelectorAll("[data-transcribe]").forEach(b=>b.onclick=async()=>{b.disabled=true;try{await api(`/api/recordings/${b.dataset.transcribe}/transcribe`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({start_time:container.querySelector(`[data-start="${b.dataset.transcribe}"]`).value})});if(state.run?.id!==id)return;voiceNotice("");loadRecordings(id)}catch(e){b.disabled=false;if(state.run?.id===id)voiceNotice(e.message,"error")}});
-      container.querySelectorAll("[data-events]").forEach(input=>input.onchange=async()=>{if(!input.files[0])return;try{const payload=JSON.parse(await input.files[0].text());const result=await api(`/api/recordings/${input.dataset.events}/events`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)});if(state.run?.id!==id)return;voiceNotice(`Imported ${result.added} events; skipped ${result.skipped} duplicates.`,"success");await refreshEventViews()}catch(e){if(state.run?.id===id)voiceNotice(e.message,"error")}finally{input.value=""}});
+      container.querySelectorAll("[data-events]").forEach(input=>input.onchange=()=>uploadEventJson(input,id,`/api/recordings/${input.dataset.events}/events`));
     }
     rows.forEach(r=>{const card=container.querySelector(`[data-recording="${r.id}"]`),progress=card?.querySelector("progress");if(!progress)return;card.querySelector("[data-progress-time]").textContent=`${voiceDuration(r.processed_ms)} / ${voiceDuration(r.duration_ms)}`;if(r.duration_ms&&r.stage==="Transcribing")progress.value=Math.min(r.duration_ms,r.processed_ms||0)});
     if(rows.some(r=>["queued","processing"].includes(r.status)))voicePoll=setTimeout(()=>loadRecordings(id),2000);

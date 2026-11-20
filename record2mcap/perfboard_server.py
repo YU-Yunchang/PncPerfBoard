@@ -13,6 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from .perfboard_event_import import import_manual_batch, is_manual_batch
 from .perfboard_jobs import ImportQueue, find_records, output_for
 from . import perfboard_voice as voice
 from .perfboard_storage import (
@@ -102,7 +103,12 @@ class Handler(BaseHTTPRequestHandler):
                 rid, action = parts[2:]
                 if action == 'events':
                     with open_db(self.db_path) as conn:
-                        result = voice.import_events(conn, rid, self.read_json())
+                        payload = self.read_json()
+                        if is_manual_batch(payload):
+                            run_id = voice.recording(conn, rid)["run_id"]
+                            result = import_manual_batch(conn, run_id, payload)
+                        else:
+                            result = voice.import_events(conn, rid, payload)
                     return self.json(result, 201)
                 if action == 'transcribe':
                     payload = self.read_json()
@@ -123,6 +129,10 @@ class Handler(BaseHTTPRequestHandler):
                 with open_db(self.db_path) as conn:
                     return self.json(voice.set_link(conn, int(parts[2]), payload.get('target_id'), payload.get('mode', 'manual')))
             run_id, tail = parse_run_path(path)
+            if run_id is not None and tail == 'events':
+                with open_db(self.db_path) as conn:
+                    result = import_manual_batch(conn, run_id, self.read_json())
+                return self.json(result, 201)
             if run_id is not None and tail == 'recordings':
                 from urllib.parse import unquote
                 with open_db(self.db_path) as conn:

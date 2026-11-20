@@ -64,13 +64,13 @@ async function refreshEventViews(){
 }
 async function restoreEvent(event){try{await api(`/api/events/${event.id}`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({ignored:false})});await refreshEventViews()}catch(err){alert(err.message)}}
 function linkedAutomaticEvent(e){
-  const voice=e.voice;
-  if(!voice?.linked_event_id||voice.match_status!=="linked"||voice.link_mode==="disabled")return null;
-  return state.timeline?.events?.find(event=>event.id===voice.linked_event_id&&event.source==="auto"&&event.event_type==="closed_loop_exit"&&(!e.run_id||event.run_id===e.run_id))||null;
+  const report=e.voice||e.diagnostic?.manual_report;
+  if(!report?.linked_event_id||report.match_status!=="linked"||report.link_mode==="disabled")return null;
+  return state.timeline?.events?.find(event=>event.id===report.linked_event_id&&event.source==="auto"&&event.event_type==="closed_loop_exit"&&(!e.run_id||event.run_id===e.run_id))||null;
 }
 function visibleEvents(){return (state.timeline?.events||[]).filter(e=>!linkedAutomaticEvent(e))}
 function eventsForFile(id){return visibleEvents().filter(e=>Number(e.run_file_id)===Number(id))}
-function eventName(e){return [e.user_description||e.auto_description||e.voice?.title||eventLabel(e),...(e.voice_reports||[]).map(v=>v.voice.title)].join(" · ")}
+function eventName(e){return [e.user_description||e.auto_description||e.voice?.title||eventLabel(e),...(e.voice_reports||[]).map(v=>v.voice.title),...(e.manual_reports||[]).map(r=>`${fmtClock(r.timestamp_ns)} ${r.user_description||r.diagnostic.manual_report.description}`)].join(" · ")}
 function reasonLabel(reason){return String(reason||"manual_note").split("_").map(x=>x.charAt(0).toUpperCase()+x.slice(1)).join(" ")}
 function voiceCategoryLabel(category){return {issue:"Issue",check:"Check",positive:"Positive"}[category]||"Voice report"}
 function eventCategory(e){
@@ -81,20 +81,28 @@ function eventCategory(e){
   }
   return e.category||e.reason||"manual_note";
 }
-function eventLabel(e){return e.voice?voiceCategoryLabel(e.voice.category):e.source==="voice"?"Voice report":reasonLabel(eventCategory(e))}
+function eventLabel(e){
+  const assessment=e.voice?.category||e.diagnostic?.manual_report?.category;
+  if(assessment)return voiceCategoryLabel(assessment);
+  return e.source==="voice"?"Voice report":reasonLabel(eventCategory(e));
+}
 function voiceMatchLabel(voice){return voice.link_mode==="disabled"?"Auto-match disabled":{linked:"Linked",unmatched:"Not linked",not_applicable:"No reported takeover",ambiguous:"Needs review",type_conflict:"Type conflict"}[voice.match_status]||"Needs review"}
 function eventMetadata(e){
   const parts=[e.source,`Category: ${reasonLabel(eventCategory(e))}`];
   if(e.voice){if(e.voice.match_status!=="not_applicable"||e.voice.link_mode==="disabled")parts.push(voiceMatchLabel(e.voice))}
   else if(e.voice_reports?.length)parts.push(`${e.voice_reports.length} voice ${e.voice_reports.length===1?"report":"reports"}`);
+  const note=e.diagnostic?.manual_report;
+  if(note?.match_status && note.match_status!=="not_applicable")parts.push(voiceMatchLabel(note));
+  if(e.manual_reports?.length)parts.push(`${e.manual_reports.length} field ${e.manual_reports.length===1?"note":"notes"}`);
   return parts.filter(Boolean).join(" · ");
 }
 function eventCategoryBadges(e){
-  const assessments=[...new Set((e.voice_reports||[]).map(report=>report.voice.category))];
+  const assessments=[...new Set([...(e.voice_reports||[]).map(r=>r.voice.category),...(e.manual_reports||[]).map(r=>r.diagnostic.manual_report.category)])];
   return assessments.length?`<div class="event-heading event-voice-heading">${assessments.map(assessment=>`<b data-assessment="${esc(assessment)}">${esc(voiceCategoryLabel(assessment))}</b>`).join(" · ")}</div>`:"";
 }
 function eventActions(e){
-  return `<button class="secondary" data-edit-event="${e.id}">Edit</button>${canIgnoreEvent(e)?`<button class="secondary" data-ignore-event="${e.id}">${e.ignored?"Restore":"Ignore"}</button>`:""}${e.voice||e.voice_reports?.length?`<button class="secondary" data-review-audio="${e.id}">Review audio</button>`:""}`;
+  const editNotes=(e.manual_reports||[]).map(r=>`<button class="secondary" data-edit-event="${r.id}">Edit note${e.manual_reports.length>1?" · "+esc(fmtClock(r.timestamp_ns)):""}</button>`).join("");
+  return `<button class="secondary" data-edit-event="${e.id}">Edit</button>${editNotes}${canIgnoreEvent(e)?`<button class="secondary" data-ignore-event="${e.id}">${e.ignored?"Restore":"Ignore"}</button>`:""}${e.voice||e.voice_reports?.length?`<button class="secondary" data-review-audio="${e.id}">Review audio</button>`:""}`;
 }
 function eventCardMarkup(e){
   return `<div class="event-item ${e.ignored?"is-ignored":""}"><span>${fmtClock(e.timestamp_ns)}</span><div class="event-content"><div class="event-heading"><b data-category="${esc(eventCategory(e))}">${esc(eventLabel(e))}</b>${e.ignored?'<span class="ignored-badge">Ignored</span>':""}</div>${eventCategoryBadges(e)}<div class="event-source">${esc(eventName(e))}</div><div class="event-meta">${esc(eventMetadata(e))}</div>${e.ignored?`<div class="ignore-note">Ignore reason: ${esc(e.ignore_reason)}</div>`:""}</div><span class="event-actions">${eventActions(e)}</span></div>`;

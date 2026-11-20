@@ -2,6 +2,12 @@
 
 本地路测数据分析工具：导入 Apollo Cyber Record，后台转换 Foxglove MCAP，查看 GPS 路线、闭环状态、接管事件和人工标注。无需 Apollo、ROS、Node.js、GPU 或 Whisper 即可使用核心功能。
 
+## Windows 完整版（含 Whisper）
+
+从 [GitHub Releases](https://github.com/YU-Yunchang/PncPerfBoard/releases) 下载 Windows ZIP，解压到可写目录。安装 **64 位 Python 3.11**（保留 Python Launcher），双击 `start-whisper.bat`。首次启动从 PyPI 和 Hugging Face 下载依赖及 Whisper small 模型，之后可离线转写。默认使用 CPU，支持中文录音，耗时取决于机器和录音长度。
+
+在 Run Details 的 **Road-test Recordings** 上传录音、确认开始时间、点击 **Transcribe**。转写后可以下载 transcript JSON，按照[语音指南](docs/voice-events.md)提取事件 JSON，再回到同一录音下导入并复听证据。事件提取是单独的一步。
+
 ## 最快启动
 
 安装 [Python](https://www.python.org/downloads/) 3.9 或更高版本（推荐 3.11；Windows 安装时勾选 **Add Python to PATH**），下载本仓库 ZIP 并解压，或执行：
@@ -31,7 +37,7 @@ python3 start.py --setup-only        # 只安装依赖
 
 - **Foxglove**：查看 3D MCAP 时安装 Foxglove 桌面版，并关联 `.mcap` 文件。未安装也可使用 PerfBoard 的路线、状态与事件页面；亦可在 Foxglove 中手动打开生成的 MCAP。Windows/macOS/Linux 均有本机打开文件入口（Linux 需要 `xdg-open`）。
 - **地图底图**：浏览器通过 OpenStreetMap 加载底图，需要网络；record 转换和数据分析在本机进行。
-- **语音转写**：默认不安装。当前扩展基于 Apple Silicon + MLX 和预先缓存的 Whisper 模型，详见 [语音指南](docs/voice-events.md)。未配置时页面会提示并禁用上传/转写，核心功能可直接使用。
+- **语音转写**：Windows x64 使用上面的完整版启动入口；Apple Silicon 可另配 MLX。详见 [语音指南](docs/voice-events.md)。
 
 服务默认仅监听本机 `127.0.0.1`，可以访问本机文件，不应作为公共网络服务部署。
 

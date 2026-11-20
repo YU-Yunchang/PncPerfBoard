@@ -1,0 +1,69 @@
+name: Windows Whisper Release
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/windows-whisper-release.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  RELEASE_TAG: windows-whisper-2026.11.20
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: x64
+      - name: Build the shareable ZIP
+        run: python scripts/package_share.py --windows-whisper
+      - name: Install from the ZIP and transcribe synthesized speech
+        shell: powershell
+        run: |
+          Expand-Archive dist/PncPerfBoard-Windows-Whisper.zip -DestinationPath release-check
+          Set-Location release-check/PncPerfBoard-Windows-Whisper
+          python start.py --with-whisper --setup-only
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Add-Type -AssemblyName System.Speech
+          $speech = New-Object System.Speech.Synthesis.SpeechSynthesizer
+          try {
+            $speech.SetOutputToWaveFile((Join-Path (Get-Location) 'ci-speech.wav'))
+            $speech.Speak('This is a road test. The driver checked the recording and confirmed the result.')
+          } finally { $speech.Dispose() }
+          $env:HF_HUB_OFFLINE = '1'
+          .venv/Scripts/python tests/windows_whisper_smoke.py ci-speech.wav
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .venv/Scripts/python -m unittest discover -s tests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-whisper
+          path: dist/PncPerfBoard-Windows-Whisper.zip
+          if-no-files-found: error
+
+  publish:
+    if: github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-whisper
+      - name: Publish tested ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists."
+            exit 0
+          fi
+          gh release create "$RELEASE_TAG" PncPerfBoard-Windows-Whisper.zip \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "PncPerfBoard for Windows with Whisper" \
+            --notes "Windows x64 with 64-bit Python 3.11. Extract the ZIP and double-click start-whisper.bat. The first launch downloads dependencies and the local Whisper small model. Subsequent transcription runs on the CPU and can work offline."
