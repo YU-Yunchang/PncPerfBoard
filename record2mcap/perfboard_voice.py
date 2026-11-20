@@ -98,9 +98,9 @@ def tool_paths():
 def transcription_capability():
     try:
         tool_paths()
-    except ValueError as error:
+    except ValueError:
         if sys.platform == "win32":
-            return {"available": False, "message": str(error)}
+            return {"available": False, "message": "Local transcription is optional and is not configured. Run start-whisper.bat to set it up."}
         return {"available": False, "message": "Local transcription is optional and is not configured. Run import, MCAP conversion and manual events are available. See docs/voice-events.md for setup."}
     return {"available": True, "message": "Local Whisper environment configured. Transcription requires a cached model."}
 

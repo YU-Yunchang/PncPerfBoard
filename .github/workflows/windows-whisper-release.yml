@@ -2,7 +2,11 @@ name: Windows Whisper Release
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/windows-whisper-release.yml']
+    paths:
+      - '.github/workflows/windows-whisper-release.yml'
+      - 'record2mcap/voice_worker.py'
+      - 'record2mcap/perfboard_voice.py'
+      - 'requirements-whisper-windows.txt'
   workflow_dispatch:
 permissions:
   contents: read
